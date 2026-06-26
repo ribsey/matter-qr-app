@@ -49,7 +49,7 @@ const MATTER_MANUAL_CODE_LENGTHS = new Set([11, 21]);
 const MANUAL_EXPORT_HINT = "Manual pairing codes are valid, but they do not include enough data to regenerate the original QR label. Paste an MT: payload to export SVG or STL.";
 const STANDARD_COMMISSIONING_FLOW = 0;
 const MATTER_LONG_TO_SHORT_DISCRIMINATOR_SHIFT = 8;
-const DCL_PROXY_BASE = "/api/dcl";
+const DCL_PROXY_BASE = window.DCL_BASE_URL ?? "/api/dcl";
 const QR_QUIET_ZONE_MODULES = 4;
 const QR_MODULE_SHAPES = {
   SQUARE: "square",
