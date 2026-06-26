@@ -1,0 +1,1 @@
+window.DCL_BASE_URL = "/api/dcl";
