@@ -16,6 +16,7 @@ const cameraStatus = document.getElementById("cameraStatus");
 const dataInput = document.getElementById("data");
 const payloadValidity = document.getElementById("payloadValidity");
 const manualDisplay = document.getElementById("manualDisplay");
+const manualDisplayLong = document.getElementById("manualDisplayLong");
 const lookupBtn = document.getElementById("dclLookupBtn");
 const lookupStatus = document.getElementById("lookupStatus");
 const detailsGrid = document.getElementById("detailsGrid");
@@ -44,6 +45,8 @@ const languageMenu = document.getElementById("languageMenu");
 const languageOptionButtons = Array.from(document.querySelectorAll("[data-language-option]"));
 const MATTER_QR_PREFIX = "MT:";
 const MATTER_BASE38_CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-.";
+const MATTER_MANUAL_CODE_LENGTHS = new Set([11, 21]);
+const MANUAL_EXPORT_HINT = "Manual pairing codes are valid, but they do not include enough data to regenerate the original QR label. Paste an MT: payload to export SVG or STL.";
 const STANDARD_COMMISSIONING_FLOW = 0;
 const MATTER_LONG_TO_SHORT_DISCRIMINATOR_SHIFT = 8;
 const DCL_PROXY_BASE = "/api/dcl";
@@ -165,6 +168,7 @@ const TRANSLATIONS = {
     "payload.invalid": "Invalid MT Code",
     "payload.help": "The <code>MT:</code> value is the Matter setup payload stored in the QR code. It contains the commissioning data used to pair the device, so it should be treated as sensitive.",
     "payload.pairingLabel": "Extracted Pairing Code",
+    "payload.pairingLabelLong": "Extracted Pairing Code (Long)",
     "payload.warning": "Warning: do not share the extracted QR contents or pairing code with anyone you do not trust.",
     "lookup.request": "Request Official Product Info",
     "lookup.refresh": "Refresh Official Product Info",
@@ -279,6 +283,7 @@ const TRANSLATIONS = {
     "payload.invalid": "Ongeldige MT-code",
     "payload.help": "De <code>MT:</code>-waarde is de Matter-installatiepayload uit de QR-code. Die bevat de gegevens om het apparaat te koppelen, dus behandel hem als gevoelig.",
     "payload.pairingLabel": "Uitgelezen koppelcode",
+    "payload.pairingLabelLong": "Uitgelezen koppelcode (Lang)",
     "payload.warning": "Waarschuwing: deel de uitgelezen QR-inhoud of koppelcode niet met mensen die je niet vertrouwt.",
     "lookup.request": "Officiele productinfo opvragen",
     "lookup.refresh": "Officiele productinfo verversen",
@@ -393,6 +398,7 @@ const TRANSLATIONS = {
     "payload.invalid": "Código MT no válido",
     "payload.help": "El valor <code>MT:</code> es la carga de configuración Matter almacenada en el código QR. Contiene los datos usados para emparejar el dispositivo, así que trátalo como sensible.",
     "payload.pairingLabel": "Código de emparejamiento extraído",
+    "payload.pairingLabelLong": "Código de emparejamiento extraído (Largo)",
     "payload.warning": "Advertencia: no compartas el contenido QR extraído ni el código de emparejamiento con nadie en quien no confíes.",
     "lookup.request": "Solicitar información oficial del producto",
     "lookup.refresh": "Actualizar información oficial del producto",
@@ -507,6 +513,7 @@ const TRANSLATIONS = {
     "payload.invalid": "Ungültiger MT-Code",
     "payload.help": "Der <code>MT:</code>-Wert ist die Matter-Einrichtungspayload aus dem QR-Code. Er enthält die Daten zum Koppeln des Geräts und sollte daher vertraulich behandelt werden.",
     "payload.pairingLabel": "Extrahierter Kopplungscode",
+    "payload.pairingLabelLong": "Extrahierter Kopplungscode (Lang)",
     "payload.warning": "Warnung: Teile den extrahierten QR-Inhalt oder Kopplungscode nicht mit Personen, denen du nicht vertraust.",
     "lookup.request": "Offizielle Produktinfos abrufen",
     "lookup.refresh": "Offizielle Produktinfos aktualisieren",
@@ -621,6 +628,7 @@ const TRANSLATIONS = {
     "payload.invalid": "Code MT non valide",
     "payload.help": "La valeur <code>MT:</code> est le payload de configuration Matter stocké dans le code QR. Elle contient les données utilisées pour associer l'appareil, elle doit donc être traitée comme sensible.",
     "payload.pairingLabel": "Code d'association extrait",
+    "payload.pairingLabelLong": "Code d'association extrait (Long)",
     "payload.warning": "Attention : ne partagez pas le contenu QR extrait ni le code d'association avec une personne en qui vous n'avez pas confiance.",
     "lookup.request": "Demander les infos produit officielles",
     "lookup.refresh": "Actualiser les infos produit officielles",
@@ -735,6 +743,7 @@ const TRANSLATIONS = {
     "payload.invalid": "Codice MT non valido",
     "payload.help": "Il valore <code>MT:</code> è il payload di configurazione Matter salvato nel codice QR. Contiene i dati usati per associare il dispositivo, quindi trattalo come informazione sensibile.",
     "payload.pairingLabel": "Codice di associazione estratto",
+    "payload.pairingLabelLong": "Codice di associazione estratto (Lungo)",
     "payload.warning": "Attenzione: non condividere il contenuto QR estratto o il codice di associazione con persone di cui non ti fidi.",
     "lookup.request": "Richiedi informazioni ufficiali sul prodotto",
     "lookup.refresh": "Aggiorna informazioni ufficiali sul prodotto",
@@ -828,6 +837,7 @@ const TRANSLATIONS = {
 const SUPPORTED_LANGUAGES = Object.keys(TRANSLATIONS);
 let currentLanguage = "en";
 let lastAutoManualCode = "";
+let lastAutoManualCodeLong = "";
 let currentPayload = null;
 let liveLookupData = null;
 let liveLookupPending = false;
@@ -1093,6 +1103,12 @@ function updateManualDisplay(value) {
   manualDisplay.classList.toggle("is-empty", !hasValue);
 }
 
+function updateManualDisplayLong(value) {
+  const hasValue = Boolean(value);
+  manualDisplayLong.textContent = hasValue ? value : "-";
+  manualDisplayLong.classList.toggle("is-empty", !hasValue);
+}
+
 function setLookupStatus(message, state = "success") {
   if (!lookupStatus) {
     return;
@@ -1217,9 +1233,13 @@ function getProductName(vendorId, productId, modelRecord = null) {
   );
 }
 
-function formatVendorDisplay(vendorId, vendorRecord = null) {
+function formatVendorDisplay(vendorId, vendorRecord = null, hasVendorId = true) {
   const vendorName = getVendorName(vendorId, vendorRecord);
   const hexValue = formatMatterHex(vendorId);
+
+  if (!hasVendorId) {
+    return "Unknown vendor";
+  }
 
   if (vendorName) {
     return `${vendorName} (${hexValue} / ${vendorId})`;
@@ -1228,9 +1248,13 @@ function formatVendorDisplay(vendorId, vendorRecord = null) {
   return `${hexValue} / ${vendorId}`;
 }
 
-function formatProductDisplay(vendorId, productId, modelRecord = null) {
+function formatProductDisplay(vendorId, productId, modelRecord = null, hasProductId = true) {
   const productName = getProductName(vendorId, productId, modelRecord);
   const hexValue = formatMatterHex(productId);
+
+  if (!hasProductId) {
+    return "Unknown product";
+  }
 
   if (productName) {
     return `${productName} (${hexValue} / ${productId})`;
@@ -1299,12 +1323,12 @@ function updateDetailsDisplay(payload) {
     },
     {
       key: t("details.vendorId"),
-      value: formatVendorDisplay(payload.vendorId, vendorRecord),
+      value: formatVendorDisplay(payload.vendorId, vendorRecord, payload.hasVendorAndProduct),
       help: vendorHelp
     },
     {
       key: t("details.productId"),
-      value: formatProductDisplay(payload.vendorId, payload.productId, modelRecord),
+      value: formatProductDisplay(payload.vendorId, payload.productId, modelRecord, payload.hasVendorAndProduct),
       help: productHelpParts.join(" ")
     },
     {
@@ -1683,12 +1707,123 @@ function getNormalizedMatterQrText(text) {
   return payload ? `${MATTER_QR_PREFIX}${payload}` : "";
 }
 
+function normalizeManualPairingCodeDigits(text) {
+  return String(text || "").replaceAll(/[^0-9]/g, "");
+}
+
+function formatManualPairingCode(codeDigits) {
+  if (codeDigits.length === 11) {
+    return `${codeDigits.slice(0, 4)}-${codeDigits.slice(4, 7)}-${codeDigits.slice(7)}`;
+  }
+
+  if (codeDigits.length === 21) {
+    return `${codeDigits.slice(0, 4)}-${codeDigits.slice(4, 7)}-${codeDigits.slice(7, 11)}-${codeDigits.slice(11, 16)}-${codeDigits.slice(16)}`;
+  }
+
+  return codeDigits;
+}
+
+function parseManualPairingCode(text) {
+  const normalizedDigits = normalizeManualPairingCodeDigits(text);
+
+  if (!MATTER_MANUAL_CODE_LENGTHS.has(normalizedDigits.length)) {
+    return null;
+  }
+
+  const codeWithoutChecksum = normalizedDigits.slice(0, -1);
+  const expectedChecksum = computeVerhoeffCheckDigit(codeWithoutChecksum);
+  const actualChecksum = normalizedDigits.slice(-1);
+
+  if (expectedChecksum !== actualChecksum) {
+    throw new Error("Invalid Matter manual pairing code checksum.");
+  }
+
+  const chunk1 = Number.parseInt(normalizedDigits.slice(0, 1), 10);
+  const chunk2 = Number.parseInt(normalizedDigits.slice(1, 6), 10);
+  const chunk3 = Number.parseInt(normalizedDigits.slice(6, 10), 10);
+  const hasVendorAndProduct = ((chunk1 >> 2) & 0x01) === 1;
+
+  if (
+    (hasVendorAndProduct && normalizedDigits.length !== 21) ||
+    (!hasVendorAndProduct && normalizedDigits.length !== 11)
+  ) {
+    throw new Error("Manual pairing code length does not match its flow flag.");
+  }
+
+  const shortDiscriminator = (((chunk1 & 0x03) << 2) | ((chunk2 >> 14) & 0x03)) & 0x0f;
+  const discriminator = shortDiscriminator << MATTER_LONG_TO_SHORT_DISCRIMINATOR_SHIFT;
+  const setupPinCode = (chunk2 & ((1 << 14) - 1)) | ((chunk3 & ((1 << 13) - 1)) << 14);
+  const vendorId = hasVendorAndProduct
+    ? Number.parseInt(normalizedDigits.slice(10, 15), 10)
+    : 0;
+  const productId = hasVendorAndProduct
+    ? Number.parseInt(normalizedDigits.slice(15, 20), 10)
+    : 0;
+
+  return {
+    payload: {
+      version: 0,
+      vendorId,
+      productId,
+      commissioningFlow: hasVendorAndProduct ? 1 : STANDARD_COMMISSIONING_FLOW,
+      rendezvousInformation: 0,
+      discriminator,
+      setupPinCode,
+      hasVendorAndProduct
+    },
+    manualCode: formatManualPairingCode(normalizedDigits),
+    manualCodeLong: hasVendorAndProduct ? formatManualPairingCode(normalizedDigits) : "",
+    normalizedManualCode: normalizedDigits
+  };
+}
+
+function parseMatterInput(text) {
+  const qrText = getNormalizedMatterQrText(text);
+
+  if (qrText) {
+    const payload = parseMatterQrData(qrText);
+    const manualCodes = generateParallelManualPairingCodes(payload);
+
+    return {
+      kind: "qr",
+      qrText,
+      payload,
+      manualCode: manualCodes.shortCode,
+      manualCodeLong: manualCodes.longCode
+    };
+  }
+
+  const manualCodeResult = parseManualPairingCode(text);
+
+  if (!manualCodeResult) {
+    return null;
+  }
+
+  const manualCode = manualCodeResult.payload.hasVendorAndProduct
+    ? formatManualPairingCode(
+      generateManualPairingCodeFromPayload(manualCodeResult.payload, false)
+    )
+    : manualCodeResult.manualCode;
+  const manualCodeLong = manualCodeResult.payload.hasVendorAndProduct
+    ? manualCodeResult.manualCode
+    : "";
+
+  return {
+    kind: "manual",
+    qrText: "",
+    payload: manualCodeResult.payload,
+    manualCode,
+    manualCodeLong,
+    normalizedManualCode: manualCodeResult.normalizedManualCode
+  };
+}
+
 function applyDecodedQrText(text, successMessage = t("status.qrDecoded")) {
   dataInput.value = text;
   syncManualCodeFromData({ force: true });
   generateLabel();
   setStatus(
-    lastAutoManualCode
+    lastAutoManualCode || lastAutoManualCodeLong
       ? t("status.validQr")
       : successMessage
   );
@@ -1883,7 +2018,8 @@ function parseMatterQrData(text) {
     commissioningFlow,
     rendezvousInformation,
     discriminator,
-    setupPinCode
+    setupPinCode,
+    hasVendorAndProduct: true
   };
 }
 
@@ -1925,10 +2061,18 @@ function generateManualPairingCode(text) {
   const payload = parseMatterQrData(text);
   if (!payload) return "";
 
+  return generateManualPairingCodeFromPayload(payload);
+}
+
+function generateManualPairingCodeFromPayload(payload, includeVendorAndProduct = null) {
+  const hasVendorAndProduct =
+    includeVendorAndProduct == null
+      ? payload.commissioningFlow !== STANDARD_COMMISSIONING_FLOW
+      : Boolean(includeVendorAndProduct);
+
   // The official Matter SDK derives the 4-bit manual discriminator from the
   // top bits of the 12-bit QR discriminator.
   const shortDiscriminator = (payload.discriminator >> MATTER_LONG_TO_SHORT_DISCRIMINATOR_SHIFT) & 0x0f;
-  const hasVendorAndProduct = payload.commissioningFlow !== STANDARD_COMMISSIONING_FLOW;
   const chunk1 = ((shortDiscriminator >> 2) & 0x03) | (Number(hasVendorAndProduct) << 2);
   const chunk2 = (payload.setupPinCode & ((1 << 14) - 1)) | ((shortDiscriminator & 0x03) << 14);
   const chunk3 = (payload.setupPinCode >> 14) & ((1 << 13) - 1);
@@ -1946,15 +2090,45 @@ function generateManualPairingCode(text) {
   return code + computeVerhoeffCheckDigit(code);
 }
 
+function generateParallelManualPairingCodes(payload) {
+  const shortCode = formatManualPairingCode(
+    generateManualPairingCodeFromPayload(payload, false)
+  );
+  const longCode = formatManualPairingCode(
+    generateManualPairingCodeFromPayload(payload, true)
+  );
+
+  return {
+    shortCode,
+    longCode,
+  };
+}
+
 function syncManualCodeFromData({ force = false } = {}) {
-  const data = getNormalizedMatterQrText(dataInput.value);
+  const inputText = dataInput.value;
   const previousLookupKey = getPayloadLookupKey(currentPayload);
 
   try {
-    const payload = parseMatterQrData(data);
-    const extractedCode = generateManualPairingCode(data);
+    const parsedInput = parseMatterInput(inputText);
+
+    if (!parsedInput) {
+      currentPayload = null;
+      clearLiveLookupData();
+      lastAutoManualCode = "";
+      lastAutoManualCodeLong = "";
+      updateManualDisplay("");
+      updateManualDisplayLong("");
+      updatePayloadValidity(inputText.trim() ? "invalid" : "empty");
+      updateLookupButtonState();
+      updateDetailsDisplay(null);
+      return;
+    }
+
+    const payload = parsedInput.payload;
+    const extractedCode = parsedInput.manualCode;
+    const extractedCodeLong = parsedInput.manualCodeLong;
     const nextLookupKey = getPayloadLookupKey(payload);
-    const shouldUpdateManual = force || extractedCode !== lastAutoManualCode;
+    const shouldUpdateManual = force || (extractedCode !== lastAutoManualCode || extractedCodeLong !== lastAutoManualCodeLong);
 
     currentPayload = payload;
 
@@ -1963,20 +2137,24 @@ function syncManualCodeFromData({ force = false } = {}) {
     }
 
     lastAutoManualCode = extractedCode;
+    lastAutoManualCodeLong = extractedCodeLong;
 
     if (shouldUpdateManual) {
       updateManualDisplay(extractedCode);
+      updateManualDisplayLong(extractedCodeLong);
     }
 
-    updatePayloadValidity(payload ? "valid" : "empty");
+    updatePayloadValidity("valid");
     updateLookupButtonState();
     updateDetailsDisplay(payload);
   } catch {
     currentPayload = null;
     clearLiveLookupData();
     lastAutoManualCode = "";
+    lastAutoManualCodeLong = "";
     updateManualDisplay("");
-    updatePayloadValidity(data ? "invalid" : "empty");
+    updateManualDisplayLong("");
+    updatePayloadValidity(inputText.trim() ? "invalid" : "empty");
     updateLookupButtonState();
     updateDetailsDisplay(null);
   }
@@ -2595,7 +2773,7 @@ function renderBambuSafeQR(data, x, y, moduleSize = 4, mirror = false, moduleSha
       const drawColumn = getModuleDrawColumn(totalModules, quietZoneModules, col, 1, mirror);
       if (moduleShape === QR_MODULE_SHAPES.ROUND) {
         elements.push(
-            `<circle cx="${x + ((drawColumn + 0.5) * moduleSize)}" cy="${y + ((row + quietZoneModules + 0.5) * moduleSize)}" r="${moduleSize / 2}"/>`
+          `<circle cx="${x + ((drawColumn + 0.5) * moduleSize)}" cy="${y + ((row + quietZoneModules + 0.5) * moduleSize)}" r="${moduleSize / 2}"/>`
         );
       } else if (!usesRoundedSquareCorners(moduleShape, cornerRadiusRatio)) {
         elements.push(
@@ -3240,16 +3418,25 @@ function buildQrStl(data, settings) {
 }
 
 async function generateLabel() {
-  const data = getNormalizedMatterQrText(dataInput.value);
+  const inputText = dataInput.value;
   const { exportMode: selectedExportMode, svg, stl } = getExportOptions();
   updateStlSummary();
 
-  if (!data) {
-    clearGeneratedOutput();
-    return;
-  }
-
   try {
+    const parsedInput = parseMatterInput(inputText);
+
+    if (!parsedInput) {
+      clearGeneratedOutput();
+      return;
+    }
+
+    if (parsedInput.kind !== "qr") {
+      clearGeneratedOutput();
+      renderPreviewError(MANUAL_EXPORT_HINT);
+      return;
+    }
+
+    const data = parsedInput.qrText;
     syncManualCodeFromData({ force: true });
 
     if (selectedExportMode === "stl") {
