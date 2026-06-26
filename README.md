@@ -75,30 +75,19 @@ The only exception is the optional live DCL lookup button. When used, it request
 ├── Dockerfile
 ├── README.md
 ├── docker/
-│   ├── docker-entrypoint.sh
-│   ├── nginx.conf
-│   └── nginx.conf.template
+│   └── nginx.conf
 ├── docs/
 │   └── context.md
 └── web/
     ├── app.js
-    ├── config.js
     └── index.html
 ```
 
 ## Local Structure Notes
 
 - `web/` contains the static browser app
-- `docker/nginx.conf.template` is the nginx config template used at container startup
-- `docker/nginx.conf` is kept as a static reference copy
-- `docker/docker-entrypoint.sh` generates the final nginx config from the template (applying any environment variables) and starts nginx
+- `docker/nginx.conf` serves the site and proxies `/api/dcl/` to the official CSA DCL observer node
 - `docs/context.md` keeps the project notes and current scope
-
-## Configuration
-
-| environment variable | description                                                                                                                                                               |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DISABLE_DCL_PROXY`  | boolean: This variable disables the DCL proxy (if a DCL lookup is performed, it will be connected directly by the browser) - makes it possible to disable container egres |
 
 ## Running With Docker
 
